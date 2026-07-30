@@ -373,7 +373,6 @@ def main():
             pass
 
         if login(sb):
-            print("\n✅ 登录成功，正在处理服务器续期...")
             success, info = visit_server(sb)
             if success:
                 extra = f"服务器: {info['server_name']}\nID: {info['server_id']}"
