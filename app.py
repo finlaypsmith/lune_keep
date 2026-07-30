@@ -295,7 +295,7 @@ def login(sb) -> bool:
 
     cur_url = sb.get_current_url().split('?')[0].lower()
     page_title = sb.get_title() or ""
-    if cur_url.startswith("https://betadash.lunes.host") or "Lunes host | Account page" in page_title.lower():
+    if "login" not in cur_url and "account" in page_title.lower():
         print(f"✅ 登录成功！(URL: {sb.get_current_url()}, Title: {page_title})")
         return True
         
