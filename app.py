@@ -225,6 +225,20 @@ def handle_turnstile(sb) -> bool:
     print("  ❌ Turnstile 6 次均失败")
     return False
 
+def _login_succeeded(cur_url: str, page_title: str, page_src: str) -> bool:
+    """判断当前页面是否已经是登录后的账户页。
+
+    登录成功后会跳转到 https://betadash.lunes.host/ ，标题为
+    "Lunes Host | Account Page"。跳转过程中标题可能还是空的，
+    因此再用页面里的 server-card 作为兜底特征。
+    """
+    url = (cur_url or "").split('?')[0].lower()
+    if "/login" in url:
+        return False
+    title = (page_title or "").lower()
+    src = (page_src or "").lower()
+    return "account page" in title or "server-card" in src
+
 def login(sb) -> bool:
     print(f"🌐 打开登录页面: {LOGIN_URL}")
     sb.uc_open_with_reconnect(LOGIN_URL, reconnect_time=5)
@@ -286,20 +300,18 @@ def login(sb) -> bool:
     sb.click('button[type="submit"]')
 
     print("⏳ 等待登录跳转...")
-    for _ in range(12):
+    for _ in range(20):
         time.sleep(1)
-        cur_url = sb.get_current_url().split('?')[0].lower()
-        page_title = sb.get_title() or ""
-        if cur_url.startswith("https://betadash.lunes.host") or "Lunes host | Account page" in page_title.lower():
+        if _login_succeeded(sb.get_current_url(), sb.get_title(), sb.get_page_source()):
             break
 
-    cur_url = sb.get_current_url().split('?')[0].lower()
+    cur_url = sb.get_current_url()
     page_title = sb.get_title() or ""
-    if "login" not in cur_url and "account" in page_title.lower():
-        print(f"✅ 登录成功！(URL: {sb.get_current_url()}, Title: {page_title})")
+    if _login_succeeded(cur_url, page_title, sb.get_page_source()):
+        print(f"✅ 登录成功！(URL: {cur_url}, Title: {page_title})")
         return True
-        
-    print(f"❌ 登录失败，页面未跳转到账户页。(URL: {sb.get_current_url()}, Title: {page_title})")
+
+    print(f"❌ 登录失败，页面未跳转到账户页。(URL: {cur_url}, Title: {page_title})")
     sb.save_screenshot("login_failed.png")
     return False
 
@@ -376,7 +388,7 @@ def main():
             success, info = visit_server(sb)
             if success:
                 extra = f"服务器: {info['server_name']}\nID: {info['server_id']}"
-                send_tg_message("✅", "续期成功")
+                send_tg_message("✅", "续期成功", extra)
             else:
                 error_msg = info.get('error', '未知错误')
                 print(f"❌ 访问服务器失败: {error_msg}")
