@@ -13,9 +13,9 @@ jobs:
       actions: write
     steps:
       - name: 📥 下载代码
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
       - name: 🐍 设置 Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           
@@ -27,7 +27,7 @@ jobs:
           seleniumbase install chromedriver
 
       - name: 🌐 设置sing-box代理转发
-        continue-on-error: true
+        continue-on-error: false
         env:
           NODE_LINK: ${{ secrets.NODE_LINK }} # 在secret里设置 NODE_LINK 代理启用代理 
         run: |
