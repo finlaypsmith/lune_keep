@@ -16,8 +16,27 @@ TG_BOT_TOKEN = os.environ.get("TG_BOT_TOKEN") or ""    # bot token,可选
 
 LOGIN_URL = "https://betadash.lunes.host/login?next=/"
 
+#  获取出口IP及其时区 (api.ip.sb/geoip, 失败时降级到 ip-api.com)
+def get_egress_info(proxy_server: str = ""):
+    proxies = None
+    if proxy_server:
+        proxies = {"http": proxy_server, "https": proxy_server}
+    headers = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36"}
+    for url, pick in (
+        ("https://api.ip.sb/geoip", lambda d: (d.get("ip"), d.get("timezone"))),
+        ("http://ip-api.com/json/?fields=query,timezone", lambda d: (d.get("query"), d.get("timezone"))),
+    ):
+        try:
+            data = requests.get(url, proxies=proxies, headers=headers, timeout=15).json()
+            ip, tz = pick(data)
+            if ip:
+                return ip, tz
+        except Exception as e:
+            print(f"⚠️ 获取出口信息失败 ({url}): {e}")
+    return None, None
+
 #  Telegram 推送
-def send_tg_message(status_icon, status_text, extra_text=""):
+def send_tg_message(status_icon, status_text, extra_text="", egress=""):
     if not TG_BOT_TOKEN or not TG_CHAT_ID:
         print("ℹ️ 未配置 TG_BOT_TOKEN 或 TG_CHAT_ID，跳过 Telegram 推送。")
         return
@@ -38,8 +57,10 @@ def send_tg_message(status_icon, status_text, extra_text=""):
         f"🇺🇸 Lunes 保活通知\n\n"
         f"{status_icon} {status_text}\n"
         f"👤 登录账户: {masked_email}\n"
-        f"⏱️ 登录时间: {current_time_str}"
     )
+    if egress:
+        text += f"🌍 出口IP: {egress}\n"
+    text += f"⏱️ 登录时间: {current_time_str}"
     if extra_text:
         text += f"\n\n{extra_text}"
 
@@ -367,38 +388,43 @@ def main():
     print("#" * 25)
     
     is_proxy = os.environ.get("IS_PROXY", "false").lower() == "true"
+    proxy_server = os.environ.get("PROXY_SERVER", "").strip() or "http://127.0.0.1:1080"
     sb_kwargs = {"uc": True, "headless": False}
-    
+
     if is_proxy:
-        proxy_str = "http://127.0.0.1:1081"
-        print(f"🔗 挂载sing-box代理: {proxy_str}")
-        sb_kwargs["proxy"] = proxy_str
+        print(f"🔗 挂载代理: {proxy_server}")
+        sb_kwargs["proxy"] = proxy_server
     else:
         print("🌐 未使用代理，直连访问")
-    
+
+    # 出口IP对应时区设置给浏览器, 避免IP与时区不一致
+    ip, tz = get_egress_info(proxy_server if is_proxy else "")
+    egress_str = f"{ip} ({tz})" if (ip and tz) else (ip or "未知")
+    if tz:
+        print(f"📍 出口IP: {ip}, 时区: {tz}")
+        # Chrome 进程读取 TZ 环境变量确定时区(CDP set_timezone_override 在此版本对页面不生效)
+        os.environ["TZ"] = tz
+    else:
+        print(f"📍 出口IP: {egress_str}, 时区: 未获取到(浏览器使用系统默认)")
+
     with SB(**sb_kwargs) as sb:
         print("✅ 浏览器已启动")
-        try:
-            sb.open("https://api.ip.sb/ip")
-            print(f"🌐 当前出口真实 IP: {sb.get_text('body')}")
-        except Exception:
-            pass
 
         if login(sb):
             success, info = visit_server(sb)
             if success:
                 extra = f"服务器: {info['server_name']}\nID: {info['server_id']}"
-                send_tg_message("✅", "续期成功", extra)
+                send_tg_message("✅", "续期成功", extra, egress=egress_str)
             else:
                 error_msg = info.get('error', '未知错误')
                 print(f"❌ 访问服务器失败: {error_msg}")
                 extra = f"错误: {error_msg}"
                 if 'server_id' in info:
                     extra += f"\n服务器ID: {info['server_id']}"
-                send_tg_message("❌", "续期失败", extra)
+                send_tg_message("❌", "续期失败", extra, egress=egress_str)
         else:
             print("\n❌ 登录失败，终止后续续期操作。")
-            send_tg_message("❌", "登录失败", "")
+            send_tg_message("❌", "登录失败", "", egress=egress_str)
 
 if __name__ == "__main__":
     main()
